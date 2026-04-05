@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Text
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -15,6 +16,7 @@ class Student(Base):
     # Relationships
     reading_records = relationship("ReadingRecord", back_populates="student", cascade="all, delete-orphan")
     writing_records = relationship("WritingRecord", back_populates="student", cascade="all, delete-orphan")
+    comments = relationship("Comment", back_populates="student", cascade="all, delete-orphan")
 
     __table_args__ = (
         {"sqlite_autoincrement": True},
@@ -64,6 +66,50 @@ class WritingRecord(Base):
 
     # Relationship back to Student
     student = relationship("Student", back_populates="writing_records")
+
+    class Config:
+        from_attributes = True
+
+
+class User(Base):
+    """User model - stores teacher and principal accounts."""
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, nullable=False)  # 'teacher' or 'principal'
+    assigned_class = Column(String, nullable=True)  # For teachers: class they can access
+    assigned_section = Column(String, nullable=True)  # For teachers: section they can access
+
+    # Relationships
+    comments = relationship("Comment", back_populates="teacher", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        {"sqlite_autoincrement": True},
+    )
+
+    class Config:
+        from_attributes = True
+
+
+class Comment(Base):
+    """Comment model - stores teacher comments about students."""
+    __tablename__ = "comments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
+    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    comment_text = Column(Text, nullable=False)
+    timestamp = Column(Integer, nullable=False)
+
+    # Relationships
+    student = relationship("Student", back_populates="comments")
+    teacher = relationship("User", back_populates="comments")
+
+    __table_args__ = (
+        {"sqlite_autoincrement": True},
+    )
 
     class Config:
         from_attributes = True

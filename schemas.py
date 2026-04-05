@@ -72,11 +72,63 @@ class WritingRecordRead(WritingRecordBase):
         from_attributes = True
 
 
+# ============= USER SCHEMAS =============
+
+class UserBase(BaseModel):
+    username: str
+    role: str  # 'teacher' or 'principal'
+    assigned_class: Optional[str] = None
+    assigned_section: Optional[str] = None
+
+
+class UserCreate(UserBase):
+    password: str
+
+
+class UserRead(UserBase):
+    id: int
+
+    class Config:
+        from_attributes = True
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+# ============= COMMENT SCHEMAS =============
+
+class CommentBase(BaseModel):
+    comment_text: str
+    timestamp: int
+
+
+class CommentCreate(CommentBase):
+    student_id: int
+
+
+class CommentRead(CommentBase):
+    id: int
+    student_id: int
+    teacher_id: int
+    teacher_username: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 # ============= STUDENT WITH HISTORY =============
 
 class StudentWithHistory(StudentRead):
     reading_history: List[ReadingRecordRead] = []
     writing_history: List[WritingRecordRead] = []
+    comments: List[CommentRead] = []
 
     class Config:
         from_attributes = True

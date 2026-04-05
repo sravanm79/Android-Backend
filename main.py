@@ -1,19 +1,29 @@
 import os
 import shutil
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from typing import Optional
+from datetime import datetime, timedelta
+import jwt
+from passlib.context import CryptContext
 
 from database import init_db, get_db
-from models import Student, ReadingRecord, WritingRecord
+from models import Student, ReadingRecord, WritingRecord, User, Comment
 from schemas import (
     StudentCreate, 
     ReadingRecordCreate, 
     WritingRecordCreate,
     StudentRead,
     StudentWithHistory,
-    MasterReportItem
+    MasterReportItem,
+    UserCreate,
+    UserRead,
+    LoginRequest,
+    TokenResponse,
+    CommentCreate,
+    CommentRead
 )
 
 app = FastAPI(title="Vocab Master Teacher Server")
@@ -34,6 +44,68 @@ app.add_middleware(
 
 # ✅ 3. INITIALIZE DATABASE
 init_db()
+
+# ✅ 4. AUTHENTICATION SETUP
+SECRET_KEY = "your-secret-key-here"  # In production, use environment variable
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+security = HTTPBearer()
+
+def verify_password(plain_password, hashed_password):
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password):
+    return pwd_context.hash(password)
+
+def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
+    to_encode = data.copy()
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=15)
+    to_encode.update({"exp": expire})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def authenticate_user(db: Session, username: str, password: str):
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return False
+    if not verify_password(password, user.password_hash):
+        return False
+    return user
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise credentials_exception
+    except jwt.PyJWTError:
+        raise credentials_exception
+    user = db.query(User).filter(User.username == username).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
+def check_teacher_access(user: User, student_class: str = None, section: str = None):
+    """Check if teacher has access to the specified class/section."""
+    if user.role == "principal":
+        return True  # Principals can access everything
+    if user.role == "teacher":
+        if student_class and user.assigned_class != student_class:
+            return False
+        if section and user.assigned_section != section:
+            return False
+        return True
+    return False
 
 # ✅ HELPER: Multi-level folder logic
 def get_student_storage_dir(full_name: str, student_class: str, section: str, language: str, subfolder: str):
@@ -202,30 +274,173 @@ async def sync_writing(
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- AUTHENTICATION ENDPOINTS ---
+
+@app.post("/auth/login", response_model=TokenResponse)
+async def login(login_data: LoginRequest, db: Session = Depends(get_db)):
+    """
+    Authenticate user and return JWT token.
+    """
+    user = authenticate_user(db, login_data.username, login_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, expires_delta=access_token_expires
+    )
+    return {"access_token": access_token, "token_type": "bearer"}
+
+@app.post("/auth/create_user", response_model=UserRead)
+async def create_user(user_data: UserCreate, db: Session = Depends(get_db)):
+    """
+    Create a new user account. (For admin use only - in production, add authentication)
+    """
+    # Check if user already exists
+    existing_user = db.query(User).filter(User.username == user_data.username).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # Hash the password
+    hashed_password = get_password_hash(user_data.password)
+    
+    # Create new user
+    new_user = User(
+        username=user_data.username,
+        password_hash=hashed_password,
+        role=user_data.role,
+        assigned_class=user_data.assigned_class,
+        assigned_section=user_data.assigned_section
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    return new_user
+
+# --- COMMENT ENDPOINTS ---
+
+@app.post("/teacher/comments", response_model=CommentRead)
+async def add_comment(
+    comment_data: CommentCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Add a comment about a student. Only teachers can add comments for students in their assigned class.
+    """
+    # Get the student to check access
+    student = db.query(Student).filter(Student.id == comment_data.student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Check if teacher has access to this student's class/section
+    if not check_teacher_access(current_user, student.studentClass, student.section):
+        raise HTTPException(status_code=403, detail="Access denied: You can only comment on students in your assigned class")
+    
+    # Create the comment
+    comment = Comment(
+        student_id=comment_data.student_id,
+        teacher_id=current_user.id,
+        comment_text=comment_data.comment_text,
+        timestamp=comment_data.timestamp
+    )
+    db.add(comment)
+    db.commit()
+    db.refresh(comment)
+    
+    # Add teacher username to response
+    comment.teacher_username = current_user.username
+    return comment
+
+@app.get("/teacher/comments/{student_id}", response_model=list[CommentRead])
+async def get_student_comments(
+    student_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get all comments for a specific student. Teachers can only see comments for students in their class.
+    """
+    # Get the student to check access
+    student = db.query(Student).filter(Student.id == student_id).first()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    
+    # Check if teacher has access to this student's class/section
+    if not check_teacher_access(current_user, student.studentClass, student.section):
+        raise HTTPException(status_code=403, detail="Access denied: You can only view comments for students in your assigned class")
+    
+    # Get comments with teacher usernames
+    comments = db.query(Comment, User.username).join(User, Comment.teacher_id == User.id).filter(
+        Comment.student_id == student_id
+    ).order_by(Comment.timestamp.desc()).all()
+    
+    # Format response
+    result = []
+    for comment, teacher_username in comments:
+        result.append(CommentRead(
+            id=comment.id,
+            student_id=comment.student_id,
+            teacher_id=comment.teacher_id,
+            comment_text=comment.comment_text,
+            timestamp=comment.timestamp,
+            teacher_username=teacher_username
+        ))
+    return result
+
 # --- TEACHER REPORTING ENDPOINTS ---
 
 @app.get("/teacher/master_report", response_model=list[MasterReportItem])
-async def master_report(db: Session = Depends(get_db)):
+async def master_report(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Get combined report of all reading and writing records.
+    Teachers see only their assigned class, principals see all.
     Returns all student records sorted by timestamp (most recent first).
     """
     try:
-        # Get all reading records with student info
-        reading_records = db.query(
-            Student.fullName,
-            Student.studentClass,
-            Student.section,
-            ReadingRecord
-        ).join(ReadingRecord, Student.id == ReadingRecord.student_id).all()
+        # Build query based on user role
+        if current_user.role == "teacher":
+            # Filter by assigned class and section
+            reading_query = db.query(
+                Student.fullName,
+                Student.studentClass,
+                Student.section,
+                ReadingRecord
+            ).join(ReadingRecord, Student.id == ReadingRecord.student_id).filter(
+                Student.studentClass == current_user.assigned_class,
+                Student.section == current_user.assigned_section
+            )
+            writing_query = db.query(
+                Student.fullName,
+                Student.studentClass,
+                Student.section,
+                WritingRecord
+            ).join(WritingRecord, Student.id == WritingRecord.student_id).filter(
+                Student.studentClass == current_user.assigned_class,
+                Student.section == current_user.assigned_section
+            )
+        else:  # principal
+            reading_query = db.query(
+                Student.fullName,
+                Student.studentClass,
+                Student.section,
+                ReadingRecord
+            ).join(ReadingRecord, Student.id == ReadingRecord.student_id)
+            writing_query = db.query(
+                Student.fullName,
+                Student.studentClass,
+                Student.section,
+                WritingRecord
+            ).join(WritingRecord, Student.id == WritingRecord.student_id)
         
-        # Get all writing records with student info
-        writing_records = db.query(
-            Student.fullName,
-            Student.studentClass,
-            Student.section,
-            WritingRecord
-        ).join(WritingRecord, Student.id == WritingRecord.student_id).all()
+        reading_records = reading_query.all()
+        writing_records = writing_query.all()
         
         # Format reading records
         result = []
@@ -280,14 +495,23 @@ async def master_report(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/teacher/student_report/{fullName}", response_model=StudentWithHistory)
-async def get_student_report(fullName: str, db: Session = Depends(get_db)):
+async def get_student_report(
+    fullName: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
     Get detailed report for a specific student including reading and writing history.
+    Teachers can only access students in their assigned class.
     """
     try:
         student = db.query(Student).filter(Student.fullName == fullName).first()
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+        
+        # Check access
+        if not check_teacher_access(current_user, student.studentClass, student.section):
+            raise HTTPException(status_code=403, detail="Access denied: You can only view students in your assigned class")
         
         # Get reading history
         reading_history = db.query(ReadingRecord).filter(
@@ -299,13 +523,30 @@ async def get_student_report(fullName: str, db: Session = Depends(get_db)):
             WritingRecord.student_id == student.id
         ).order_by(WritingRecord.timestamp.desc()).all()
         
+        # Get comments with teacher usernames
+        comments_query = db.query(Comment, User.username).join(User, Comment.teacher_id == User.id).filter(
+            Comment.student_id == student.id
+        ).order_by(Comment.timestamp.desc()).all()
+        
+        comments = []
+        for comment, teacher_username in comments_query:
+            comments.append(CommentRead(
+                id=comment.id,
+                student_id=comment.student_id,
+                teacher_id=comment.teacher_id,
+                comment_text=comment.comment_text,
+                timestamp=comment.timestamp,
+                teacher_username=teacher_username
+            ))
+        
         return StudentWithHistory(
             id=student.id,
             fullName=student.fullName,
             studentClass=student.studentClass,
             section=student.section,
             reading_history=reading_history,
-            writing_history=writing_history
+            writing_history=writing_history,
+            comments=comments
         )
     except HTTPException:
         raise
@@ -313,13 +554,23 @@ async def get_student_report(fullName: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/teacher/list_students", response_model=list[StudentRead])
-async def list_students(db: Session = Depends(get_db)):
+async def list_students(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
     """
-    List all students in the system.
+    List students in the system.
+    Teachers see only students in their assigned class, principals see all.
     Returns list of students sorted by fullName.
     """
     try:
-        students = db.query(Student).order_by(Student.fullName.asc()).all()
+        if current_user.role == "teacher":
+            students = db.query(Student).filter(
+                Student.studentClass == current_user.assigned_class,
+                Student.section == current_user.assigned_section
+            ).order_by(Student.fullName.asc()).all()
+        else:  # principal
+            students = db.query(Student).order_by(Student.fullName.asc()).all()
         return students
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
