@@ -5,13 +5,14 @@ from typing import Optional, List
 # ============= STUDENT SCHEMAS =============
 
 class StudentBase(BaseModel):
+    student_id: str
     fullName: str
     studentClass: str
     section: str
 
 
 class StudentCreate(StudentBase):
-    pass
+    password: Optional[str] = None
 
 
 class StudentRead(StudentBase):
@@ -19,6 +20,15 @@ class StudentRead(StudentBase):
 
     class Config:
         from_attributes = True
+
+
+class StudentLogin(BaseModel):
+    student_id: str
+    password: str
+
+
+class StudentSync(BaseModel):
+    student_id: str
 
 
 # ============= READING RECORD SCHEMAS =============
@@ -37,7 +47,7 @@ class ReadingRecordBase(BaseModel):
 
 
 class ReadingRecordCreate(ReadingRecordBase):
-    student_id: int
+    pass
 
 
 class ReadingRecordRead(ReadingRecordBase):
@@ -61,7 +71,7 @@ class WritingRecordBase(BaseModel):
 
 
 class WritingRecordCreate(WritingRecordBase):
-    student_id: int
+    pass
 
 
 class WritingRecordRead(WritingRecordBase):
@@ -92,16 +102,6 @@ class UserRead(UserBase):
         from_attributes = True
 
 
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-
-
 # ============= COMMENT SCHEMAS =============
 
 class CommentBase(BaseModel):
@@ -110,14 +110,12 @@ class CommentBase(BaseModel):
 
 
 class CommentCreate(CommentBase):
-    student_id: int
+    student_id: str
 
 
 class CommentRead(CommentBase):
     id: int
     student_id: int
-    teacher_id: int
-    teacher_username: Optional[str] = None
 
     class Config:
         from_attributes = True

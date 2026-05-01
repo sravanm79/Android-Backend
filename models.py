@@ -9,6 +9,8 @@ class Student(Base):
     __tablename__ = "students"
 
     id = Column(Integer, primary_key=True, index=True)
+    student_id = Column(String, unique=True, nullable=False)  # Unique student ID for login
+    password_hash = Column(String, nullable=False)
     fullName = Column(String, nullable=False)
     studentClass = Column(String, nullable=False)
     section = Column(String, nullable=False)
@@ -82,9 +84,6 @@ class User(Base):
     assigned_class = Column(String, nullable=True)  # For teachers: class they can access
     assigned_section = Column(String, nullable=True)  # For teachers: section they can access
 
-    # Relationships
-    comments = relationship("Comment", back_populates="teacher", cascade="all, delete-orphan")
-
     __table_args__ = (
         {"sqlite_autoincrement": True},
     )
@@ -99,13 +98,11 @@ class Comment(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
-    teacher_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     comment_text = Column(Text, nullable=False)
     timestamp = Column(Integer, nullable=False)
 
     # Relationships
     student = relationship("Student", back_populates="comments")
-    teacher = relationship("User", back_populates="comments")
 
     __table_args__ = (
         {"sqlite_autoincrement": True},
