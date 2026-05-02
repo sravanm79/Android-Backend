@@ -35,6 +35,7 @@ class StudentSync(BaseModel):
 
 class ReadingRecordBase(BaseModel):
     language: str
+    level: str  # easy, medium, advanced
     wpm: int
     accuracy: int
     mistakes: int
@@ -140,6 +141,7 @@ class MasterReportItem(BaseModel):
     section: str
     Task: str
     language: str
+    level: Optional[str] = None
     accuracy: int
     wpm: Optional[int] = None
     mistakes: int

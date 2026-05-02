@@ -35,6 +35,7 @@ class ReadingRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     student_id = Column(Integer, ForeignKey("students.id"), nullable=False)
     language = Column(String, nullable=False)
+    level = Column(String, nullable=False)  # easy, medium, advanced
     wpm = Column(Integer)
     accuracy = Column(Integer)
     mistakes = Column(Integer)

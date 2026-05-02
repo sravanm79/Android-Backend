@@ -167,6 +167,7 @@ async def sync_reading(
 
         # ✅ Extract reading data
         language = reading_parsed.language
+        level = reading_parsed.level
         wpm = reading_parsed.wpm
         accuracy = reading_parsed.accuracy
         mistakes = reading_parsed.mistakes
@@ -190,6 +191,7 @@ async def sync_reading(
         reading_record = ReadingRecord(
             student_id=student.id,
             language=language,
+            level=level,
             wpm=wpm,
             accuracy=accuracy,
             mistakes=mistakes,
@@ -369,6 +371,7 @@ async def master_report(
                 section=section,
                 Task="Reading",
                 language=record.language,
+                level=record.level,
                 accuracy=record.accuracy,
                 wpm=record.wpm,
                 mistakes=record.mistakes,

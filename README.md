@@ -10,11 +10,14 @@ A production-ready **FastAPI REST API** backend for managing student reading and
 - Organize students by groups
 
 ✅ **Reading Practice Tracking**
+- **Level-Based Analysis** (Easy, Medium, Advanced)
+- Track students across all classes (1-10)
 - Record words-per-minute (WPM)
 - Track accuracy and mistakes
 - Store audio recordings (MP3/WAV)
 - Support for English and Kannada languages
 - Save practice details and transcripts
+- Analyze performance by difficulty level
 
 ✅ **Writing Assessment Tracking**
 - Record writing accuracy and mistakes
@@ -100,9 +103,9 @@ Both are **auto-generated from Pydantic schemas**.
 ```http
 POST /sync/reading
 ```
-Submit reading practice with audio file. Validates student info and reading metrics.
+Submit reading practice with audio file. Includes language (English/Kannada) and difficulty level (Easy/Medium/Advanced). Validates student info and reading metrics.
 
-**Request:** StudentCreate + ReadingRecordCreate + audio_file  
+**Request:** StudentSync + ReadingRecordCreate (with language and level) + audio_file  
 **Response:** `{"status": "success", "file_saved_at": "path"}`
 
 ### Writing Assessment
@@ -118,20 +121,56 @@ Submit writing assessment with optional document. Validates student info and wri
 ```http
 GET /teacher/master_report
 ```
-Get combined report of all student records (reading + writing).  
-**Response:** `[MasterReportItem, ...]` (sorted by timestamp)
+Get combined report of all student records (reading + writing) with level information for reading tests.  
+**Response:** `[MasterReportItem, ...]` (sorted by timestamp, includes level for reading records)
 
 ```http
-GET /teacher/student_report/{fullName}
+GET /teacher/student_report/{student_id}
 ```
-Get detailed history for a specific student including reading and writing records.  
-**Response:** `StudentWithHistory` (student info + history lists)
+Get detailed history for a specific student including reading records with levels and writing records.  
+**Response:** `StudentWithHistory` (student info + reading/writing history with level breakdown)
 
 ```http
 GET /teacher/list_students
 ```
 Get list of all students in the system.  
 **Response:** `[StudentRead, ...]` (sorted by name)
+
+## 📊 Level-Based Reading Analysis
+
+The system now supports **difficulty-level tracking** exclusively for reading practice:
+
+### Supported Levels
+- **Easy** - Beginner vocabulary and passages (Classes 1-10)
+- **Medium** - Intermediate vocabulary and passages (Classes 1-10)
+- **Advanced** - Advanced vocabulary and passages (Classes 1-10)
+
+### Supported Languages
+- **English** - English language reading assessments
+- **Kannada** - Kannada language reading assessments
+
+### Analysis Capabilities
+Teachers can now:
+1. **Track Student Progression** - See how students move from easy → medium → advanced
+2. **Performance Comparison** - Compare WPM, accuracy, and mistakes at different levels
+3. **Language Analysis** - Compare English vs Kannada performance at the same level
+4. **Difficulty-Specific Feedback** - Provide targeted recommendations based on level
+5. **Comprehensive Reporting** - All reports include level information for reading records
+
+### Example: Reading Record with Level
+```json
+{
+  "student_id": 1,
+  "language": "english",
+  "level": "medium",
+  "wpm": 120,
+  "accuracy": 95,
+  "mistakes": 2,
+  "pace": "fast",
+  "practice_words": "vocabulary,reading,comprehension",
+  "timestamp": 1714675200
+}
+```
 
 ## 🗄️ Database Schema
 
@@ -147,7 +186,8 @@ section          - Section letter
 ```
 id (PK)          - Auto-incrementing integer
 student_id (FK)  - Reference to student
-language         - EN or KN
+language         - "english" or "kannada"
+level            - "easy", "medium", or "advanced"
 wpm              - Words per minute
 accuracy         - Accuracy percentage
 mistakes         - Number of mistakes
@@ -180,18 +220,20 @@ timestamp        - Unix timestamp
 - **Auto-initialization:** Tables created on first run
 
 ### File Upload Path
-Files are uploaded to: `/home/vocab-server6/sravan/data_upload/`
+Files are uploaded to: `C:\Vocab\student_data\` (configurable in main.py)
 
-Directory structure created automatically:
+Directory structure created automatically by language:
 ```
-/data_upload/
-  {StudentName}_{Class}_{Section}/
-    English/
-      audios/          # Audio files for reading
-      pdf_images/      # Documents for writing
-    Kannada/
-      audios/          # Audio files for reading
-      pdf_images/      # Documents for writing
+/student_data/
+  {StudentName}/
+    {Class}/
+      {Section}/
+        english/
+          audios/          # Audio files for English reading tests
+          pdf_images/      # Documents for English writing tests
+        kannada/
+          audios/          # Audio files for Kannada reading tests
+          pdf_images/      # Documents for Kannada writing tests
 ```
 
 ### Environment Variables
@@ -374,12 +416,13 @@ For issues or questions:
 
 ## 📊 Project Statistics
 
-- **Total Files:** 7
-- **Total Lines of Code:** ~930
+- **Total Files:** 4 (Core files only)
+- **Total Lines of Code:** ~950
 - **Python Files:** 4 (main, models, database, schemas)
-- **Configuration Files:** 2 (requirements.txt, .gitignore)
-- **Documentation:** 1 (README)
-- **License:** 1 (MIT)
+- **Configuration Files:** 1 (requirements.txt)
+- **Database Tables:** 4 (students, reading_records, writing_records, users, comments)
+- **API Endpoints:** 8 (register, login, reading sync, writing sync, reports, comments)
+- **Features:** Level-based reading analysis (Easy/Medium/Advanced), Language support (English/Kannada)
 
 ## 🎓 What You're Using
 
@@ -392,6 +435,13 @@ For issues or questions:
 All with **zero external configuration** - just `pip install -r requirements.txt` and `python main.py`!
 
 ## 🚀 Version History
+
+- **v2.0.0** (May 2, 2026) - Level-Based Reading Analysis
+  - Added level-based difficulty tracking for reading tests
+  - Support for Easy/Medium/Advanced levels across all classes
+  - Language-specific organization (English/Kannada)
+  - Enhanced reporting with level information
+  - Improved student performance tracking across difficulty tiers
 
 - **v1.0.0** (April 4, 2026) - Initial release
   - Complete FastAPI application
