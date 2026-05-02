@@ -5,6 +5,11 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Form
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
+from dotenv import load_dotenv
+import logging
+
+# ✅ 1. LOAD ENVIRONMENT VARIABLES
+load_dotenv()
 
 from database import init_db, get_db
 from models import Student, ReadingRecord, WritingRecord, Comment
@@ -23,21 +28,32 @@ from schemas import (
 
 app = FastAPI(title="Vocab Master Teacher Server")
 
-# ✅ 1. SETUP BASE PATH
-BASE_UPLOAD_PATH = r"C:\Vocab\student_data"
+# ✅ 2. SETUP ENVIRONMENT VARIABLES
+BASE_UPLOAD_PATH = os.getenv("UPLOAD_PATH", r"C:\Vocab\student_data")
+SERVER_HOST = os.getenv("HOST", "0.0.0.0")
+SERVER_PORT = int(os.getenv("PORT", 7070))
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*").split(",")
+LOG_LEVEL = os.getenv("LOG_LEVEL", "info").upper()
+
+# ✅ 3. SETUP LOGGING
+logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
+logger = logging.getLogger(__name__)
+
+# ✅ 4. CREATE UPLOAD DIRECTORY
 if not os.path.exists(BASE_UPLOAD_PATH):
     os.makedirs(BASE_UPLOAD_PATH, exist_ok=True)
+    logger.info(f"✅ Created upload directory: {BASE_UPLOAD_PATH}")
 
-# ✅ 2. ENABLE CORS
+# ✅ 5. ENABLE CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ 3. INITIALIZE DATABASE
+# ✅ 6. INITIALIZE DATABASE
 init_db()
 
 
@@ -479,4 +495,12 @@ async def list_students(
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=7070)
+    print(f"\n{'='*60}")
+    print(f"🚀 Starting Vocab Master Teacher Server")
+    print(f"{'='*60}")
+    print(f"📍 Server: http://{SERVER_HOST}:{SERVER_PORT}")
+    print(f"📚 Swagger UI: http://localhost:{SERVER_PORT}/docs")
+    print(f"📁 Upload Path: {BASE_UPLOAD_PATH}")
+    print(f"{'='*60}\n")
+    
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)

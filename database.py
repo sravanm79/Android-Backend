@@ -1,9 +1,14 @@
+import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# SQLite database URL
-DATABASE_URL = "sqlite:///./teacher_database.db"
+# ✅ LOAD ENVIRONMENT VARIABLES
+load_dotenv()
+
+# SQLite database URL (from environment variable or default)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./teacher_database.db")
 
 # Create engine with connection pooling
 engine = create_engine(
